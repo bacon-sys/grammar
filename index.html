@@ -140,6 +140,20 @@
     font-size:16px;font-weight:700;cursor:pointer;margin:-6px 0 14px;}
   mark.clue{background:#FFE58A;color:inherit;border-radius:4px;padding:0 3px;}
   .topicnote{margin:12px 0 0;color:var(--k1);font-weight:700;font-size:17px;}
+  .modenote{background:#EEF4FB;border-left:4px solid var(--k1);border-radius:6px;padding:10px 14px;font-size:17px;margin:-4px 0 14px;}
+  .devnote{color:var(--muted);font-size:15.5px;margin:6px 0 12px;}
+  .cluenote{background:#FFFBEA;border-radius:6px;padding:6px 12px;color:#6B5200;font-size:16px;margin:-6px 0 14px;}
+  .reviewlist{display:grid;gap:12px;margin-top:6px;}
+  .wcard{background:var(--paper);border:1px solid var(--line);border-left:5px solid var(--wrong);border-radius:9px;padding:12px 16px;font-size:17px;}
+  .wcard p{margin:4px 0;}
+  .whead{font-weight:700;color:var(--ink);}
+  .wq{color:var(--muted);}
+  .wrow{display:flex;gap:10px;align-items:baseline;flex-wrap:wrap;}
+  .wlab{flex:none;font-size:14.5px;font-weight:700;border-radius:6px;padding:1px 8px;}
+  .wlab.no{background:#FBEDEC;color:var(--wrong);} .wlab.yes{background:#E8F4EE;color:var(--right);}
+  .wfb{background:var(--wash);border-radius:6px;padding:8px 12px;}
+  .wmore summary{cursor:pointer;color:var(--k1);font-size:16px;margin-top:4px;}
+  .wmore ul{margin:6px 0 0;padding-left:1.2em;font-size:16px;}
   @media (max-width:620px){ .menuacts{grid-template-columns:1fr;} }
   footer{text-align:center;color:var(--muted);font-size:15px;margin-top:8px;}
 
@@ -310,6 +324,7 @@ function startExamQuiz(){
   const c = el('div','card');
   c.appendChild(el('h2',null,'會考小考'));
   c.appendChild(el('p','kknote','從 9 年會考的文法原題和聽力原題隨機抽 10 題，每次都不一樣。答完會告訴你哪些主題要回去練。'));
+  c.appendChild(el('p','modenote','這是練習型小考：答錯會先給提示、讓你再選一次，分數以「第一次作答」計算。'));
   app.appendChild(c);
   makeQuiz(c, refs.map(itemOf), { key: null, label: '小考', refs: refs, showTopic: true, again: startExamQuiz });
 }
@@ -321,11 +336,13 @@ function showWrongBook(){
     .filter(r => topicIdx(r.t) >= 0);
   if (!refs.length){
     app.appendChild(el('div','intro','錯題本是空的。答錯的題目會自動放進來，重做時第一次就答對，它就會離開錯題本。'));
+    app.appendChild(el('p','devnote','紀錄存在這台裝置的瀏覽器裡。請固定用同一台平板、同一個瀏覽器練習，換裝置或清除瀏覽資料，紀錄就不見了。'));
     return;
   }
   const c = el('div','card');
   c.appendChild(el('h2',null,'重做錯題（' + refs.length + ' 題）'));
   c.appendChild(el('p','kknote','第一次就答對的題目會從錯題本移除。'));
+  c.appendChild(el('p','devnote','紀錄存在這台裝置的瀏覽器裡。請固定用同一台平板、同一個瀏覽器練習。'));
   const by = {};
   refs.forEach(r => { by[r.t] = (by[r.t] || 0) + 1; });
   const ul = document.createElement('ul');
@@ -453,8 +470,11 @@ function makeQuiz(card, list, cfg){
         const hb = el('button','hintbtn','看時間線索');
         hb.type = 'button';
         let on = false;
-        hb.addEventListener('click', () => { on = !on; clueText(qspan, item.q, on); hb.textContent = on ? '收起線索' : '看時間線索'; });
+        const cn = el('p','cluenote','線索字是提示，還要看事情是已經發生、當時正在進行，還是還沒發生。');
+        cn.hidden = true;
+        hb.addEventListener('click', () => { on = !on; clueText(qspan, item.q, on); hb.textContent = on ? '收起線索' : '看時間線索'; cn.hidden = !on; });
         body.insertBefore(hb, qt.nextSibling);
+        body.insertBefore(cn, hb.nextSibling);
       }
     }
 
@@ -482,9 +502,13 @@ function makeQuiz(card, list, cfg){
           if (ref){ store.wrong[refKey(ref)] = { t: ref.t, k: ref.k, i: ref.i, at: Date.now() }; save(); }
           b.classList.add('picked-wrong');
           b.disabled = true;
-          if (!st.wrong.some(w => w.q === item.q && w.pick === o.t)){
-            st.wrong.push({ q: item.q, pick: o.t, fb: o.fb, t: ref ? ref.t : null });
+          let w = st.wrong.find(x => x.n === st.i);
+          if (!w){
+            const c = item.opts.find(x => x.ok);
+            w = { n: st.i, q: item.audio ? '' : item.q, picks: [], right: c ? c.t : '', rfb: c ? c.fb : '', t: ref ? ref.t : null };
+            st.wrong.push(w);
           }
+          if (!w.picks.some(p => p.pick === o.t)) w.picks.push({ pick: o.t, fb: o.fb });
           feedback(fbBox, false, o.fb, missed, item, ref);
         }
         drawProgress();
@@ -538,16 +562,26 @@ function makeQuiz(card, list, cfg){
     body.appendChild(el('p','scorelabel', cfg.label + ' ' + list.length + ' 題中，一次就答對 ' + right + ' 題'));
     if (st.wrong.length){
       body.appendChild(el('h3',null,'這些地方要再看一次'));
-      const box = el('div','review');
-      const ul = document.createElement('ul');
-      ul.style.margin = '0';
-      st.wrong.forEach(w => {
-        const li = document.createElement('li');
-        li.appendChild(el('strong', null, '你選了 ' + w.pick + '：'));
-        li.appendChild(document.createTextNode(w.fb));
-        ul.appendChild(li);
+      const box = el('div','reviewlist');
+      st.wrong.sort((a, b) => a.n - b.n).forEach(w => {
+        const card = el('div','wcard');
+        let head = '第 ' + (w.n + 1) + ' 題';
+        if (w.t && topicIdx(w.t) >= 0) head += '｜' + TOPICS[topicIdx(w.t)].title;
+        card.appendChild(el('p','whead', head));
+        if (w.q){ const qline = el('p','wq en'); qline.textContent = w.q; card.appendChild(qline); }
+        const first = w.picks[0];
+        const r1 = el('p','wrow'); r1.appendChild(el('span','wlab no','你第一次選')); r1.appendChild(el('span','en', first.pick)); card.appendChild(r1);
+        const r2 = el('p','wrow'); r2.appendChild(el('span','wlab yes','正確答案')); r2.appendChild(el('span','en', w.right)); card.appendChild(r2);
+        card.appendChild(el('p','wfb', w.rfb));
+        {
+          const det = document.createElement('details'); det.className = 'wmore';
+          det.appendChild(el('summary', null, '看每個錯的選項錯在哪裡（' + w.picks.length + '）'));
+          const ul = document.createElement('ul');
+          w.picks.forEach(p => { const li = document.createElement('li'); li.appendChild(el('strong', null, p.pick + '：')); li.appendChild(document.createTextNode(p.fb)); ul.appendChild(li); });
+          det.appendChild(ul); card.appendChild(det);
+        }
+        box.appendChild(card);
       });
-      box.appendChild(ul);
       body.appendChild(box);
       if (cfg.showTopic){
         const ids = [...new Set(st.wrong.map(w => w.t).filter(Boolean))];
